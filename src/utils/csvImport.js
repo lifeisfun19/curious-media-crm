@@ -3,7 +3,6 @@
 // strict row-level validation with per-row error reporting.
 
 import { parseN, normaliseName } from "./format";
-import { PLATFORMS } from "./constants";
 
 // Canonical column name mapping — case-insensitive, trims whitespace.
 // Maps whatever header name the sheet uses → internal field name.
@@ -175,26 +174,27 @@ Found headers: ${headers.join(", ")}`,
       continue;
     }
 
-    // Build the platforms[] array. If the sheet has per-platform link
-    // columns (Instagram Link / YouTube Link / ...), use one entry per
-    // non-empty column. Otherwise fall back to the legacy single
-    // Platform + Link columns.
-    let platforms = [];
+    // Build one row per platform. If the sheet has per-platform link
+    // columns (Instagram Link / YouTube Link / ...), emit one standalone
+    // creator row for each non-empty column — a creator on Instagram +
+    // YouTube becomes 2 separate rows, sharing name/phone/email but each
+    // with its own platform + link. Otherwise fall back to the legacy
+    // single Platform + Link column pair (one row).
+    let platformEntries = [];
     if (hasPlatformColumns) {
       Object.entries(platformColIndex).forEach(([platName, colIdx]) => {
         const link = (cols[colIdx] ?? "").trim();
-        if (link) platforms.push({ platform: platName, link });
+        if (link) platformEntries.push({ platform: platName, link });
       });
     }
-    if (platforms.length === 0) {
-      platforms = [
+    if (platformEntries.length === 0) {
+      platformEntries = [
         { platform: get("platform") || "Instagram", link: get("profileLink") },
       ];
     }
 
-    rows.push({
+    const shared = {
       name,
-      platforms,
       phone: get("phone"),
       email: get("email"),
       gender: get("gender") || "Others",
@@ -204,6 +204,14 @@ Found headers: ${headers.join(", ")}`,
       avgViews: Math.round(followers * 0.08),
       commercial: "",
       remark: "",
+    };
+
+    platformEntries.forEach(({ platform, link }) => {
+      rows.push({
+        ...shared,
+        platform,
+        profileLink: link,
+      });
     });
   }
 
@@ -211,21 +219,28 @@ Found headers: ${headers.join(", ")}`,
 }
 
 /**
+ * Build the dedup key for a row: name + phone + platform, normalised.
+ * Two rows are considered the "same entry" only when all three match —
+ * so the same person on Instagram AND YouTube is correctly kept as 2
+ * separate entries, while re-importing the same person+platform twice is
+ * caught as a duplicate.
+ */
+function dedupeKey(row) {
+  const normPhone = normalisePhone(row.phone);
+  const normName = normaliseName(row.name);
+  const platform = (row.platform || "").trim().toLowerCase();
+  return `${normName}|${normPhone}|${platform}`;
+}
+
+/**
  * Merge imported rows into the existing creators array.
- * Dedup rule: skip if normalised phone already exists.
+ * Dedup rule: skip if name + phone + platform already exists.
  * Sort result alphabetically by name (case-insensitive).
  *
  * Returns: { merged: [...creators], added: number, skipped: number }
  */
 export function mergeCreators(existing, incoming) {
-  // Build a set of normalised phones already in the list.
-  const existingPhones = new Set(
-    existing
-      .map((c) => normalisePhone(c.phone))
-      .filter((p) => p.length > 0)
-  );
-  // Fallback dedup key for rows with no phone number at all: name only.
-  const existingNames = new Set(existing.map((c) => normaliseName(c.name)));
+  const existingKeys = new Set(existing.map(dedupeKey));
 
   let added = 0;
   let skipped = 0;
@@ -233,25 +248,17 @@ export function mergeCreators(existing, incoming) {
 
   const newOnes = [];
   for (const row of incoming) {
-    const normPhone = normalisePhone(row.phone);
-    const normName = normaliseName(row.name);
+    const key = dedupeKey(row);
 
-    // Skip if phone matches an existing creator (and phone is non-empty).
-    if (normPhone && existingPhones.has(normPhone)) {
-      skipped++;
-      continue;
-    }
-    // No phone to go on — fall back to matching by name so the same
-    // creator pasted twice doesn't create two rows.
-    if (!normPhone && existingNames.has(normName)) {
+    // Skip if the same name+phone+platform combo already exists.
+    if (existingKeys.has(key)) {
       skipped++;
       continue;
     }
 
-    // Register this key so we don't add the same creator twice within the
+    // Register this key so we don't add the same entry twice within the
     // same import batch either.
-    if (normPhone) existingPhones.add(normPhone);
-    existingNames.add(normName);
+    existingKeys.add(key);
 
     newOnes.push({
       id: "imp_" + nextId++,
@@ -269,33 +276,27 @@ export function mergeCreators(existing, incoming) {
 
 /**
  * Sync imported rows into the existing creators array.
- * Unlike mergeCreators (which always skips duplicate phones), this matches
- * rows to existing creators by normalised phone and *updates* the existing
- * record's fields in place when a match is found. Rows with no phone match
- * are appended as new creators. Used for the "live sheet link" flow, where
- * the whole point is that edits made in the sheet should flow through.
- *
- * Rows with no phone fall back to matching by normalised name, so a sheet
- * that doesn't collect phone numbers can still update existing rows
- * instead of piling up duplicates.
+ * Unlike mergeCreators (which always skips duplicate name+phone+platform
+ * entries), this matches rows to existing creators by that same key and
+ * *updates* the existing record's fields in place when a match is found.
+ * Rows with no match are appended as new creators (new platform for an
+ * existing person, or a brand new person). Used for the "live sheet link"
+ * flow, where the whole point is that edits made in the sheet should flow
+ * through.
  *
  * When `mirror` is true, this treats the sheet as the full source of
- * truth: any existing creator that isn't matched by *any* incoming row
- * (by phone or by name) is removed from the result. This is how
- * deletions made in the sheet propagate into the app. Leave it false to
- * only ever add/update (never delete) — the safer default.
+ * truth: any existing creator that isn't matched by *any* incoming row is
+ * removed from the result. This is how deletions made in the sheet
+ * propagate into the app. Leave it false to only ever add/update (never
+ * delete) — the safer default.
  *
  * Returns: { merged: [...creators], added: number, updated: number, removed: number }
  */
 export function syncCreators(existing, incoming, { mirror = false } = {}) {
-  // Map normalised phone/name -> index in existing array, for fast lookup.
-  const phoneIndex = new Map();
-  const nameIndex = new Map();
+  // Map dedupe key -> index in existing array, for fast lookup.
+  const keyIndex = new Map();
   existing.forEach((c, i) => {
-    const p = normalisePhone(c.phone);
-    if (p) phoneIndex.set(p, i);
-    const n = normaliseName(c.name);
-    if (n && !nameIndex.has(n)) nameIndex.set(n, i);
+    keyIndex.set(dedupeKey(c), i);
   });
 
   const result = [...existing];
@@ -305,10 +306,8 @@ export function syncCreators(existing, incoming, { mirror = false } = {}) {
   let nextId = Date.now();
 
   for (const row of incoming) {
-    const normPhone = normalisePhone(row.phone);
-    const normName = normaliseName(row.name);
-    let matchIdx = normPhone ? phoneIndex.get(normPhone) : undefined;
-    if (matchIdx === undefined && !normPhone) matchIdx = nameIndex.get(normName);
+    const key = dedupeKey(row);
+    const matchIdx = keyIndex.get(key);
 
     if (matchIdx !== undefined) {
       // Update existing creator in place, keeping its id.
@@ -322,8 +321,7 @@ export function syncCreators(existing, incoming, { mirror = false } = {}) {
       const newCreator = { id: "sync_" + nextId++, ...row };
       result.push(newCreator);
       matchedIdx.add(result.length - 1);
-      if (normPhone) phoneIndex.set(normPhone, result.length - 1);
-      if (normName && !nameIndex.has(normName)) nameIndex.set(normName, result.length - 1);
+      keyIndex.set(key, result.length - 1);
       added++;
     }
   }

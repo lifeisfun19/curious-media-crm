@@ -8,8 +8,6 @@ import Modal from "../components/ui/Modal";
 import { useCampaigns } from "../hooks/useCampaigns";
 import { useCreators } from "../hooks/useCreators";
 import { useToast } from "../hooks/useToast";
-import { getTier } from "../utils/format";
-import { TIER_LABELS } from "../utils/constants";
 import { campaignCreatorsToCsv, downloadCsv } from "../utils/csvExport";
 
 export default function CampaignDetails() {
@@ -22,7 +20,7 @@ export default function CampaignDetails() {
     updateCreatorLink,
     removeCreatorFromCampaign,
   } = useCampaigns();
-  const { getCreatorById } = useCreators();
+  const { getCreatorById, updateCreatorField } = useCreators();
   const showToast = useToast();
 
   const [addOpen, setAddOpen] = useState(false);
@@ -93,8 +91,7 @@ export default function CampaignDetails() {
           onClick={() => {
             const csv = campaignCreatorsToCsv(
               campaign.creatorLinks,
-              getCreatorById,
-              (followers) => TIER_LABELS[getTier(followers)]
+              getCreatorById
             );
             const stamp = new Date().toISOString().slice(0, 10);
             const safeName = campaign.name.replace(/[^a-z0-9]+/gi, "-").toLowerCase();
@@ -124,10 +121,12 @@ export default function CampaignDetails() {
         onUpdateLink={(creatorId, fields) =>
           updateCreatorLink(campaign.id, creatorId, fields)
         }
+        onUpdateCreatorField={updateCreatorField}
         onRemoveLink={(creatorId) => {
           removeCreatorFromCampaign(campaign.id, creatorId);
           showToast("Creator removed from campaign", false);
         }}
+        campaignName={campaign.name}
       />
 
       <AddCreatorsModal

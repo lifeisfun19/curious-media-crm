@@ -1,17 +1,18 @@
 // CSV export helper — builds a CSV string from creator rows and triggers
 // a browser download. No external dependency needed for this simple case.
 
-import { PLATFORMS } from "./constants";
-import { linkForPlatform, platformNames } from "./format";
-
-// One row per creator; each platform gets its own "<Platform> Link" column
-// so a creator on Instagram + YouTube shows both links on a single row.
-// This is the same shape ImportCreatorsModal/csvImport.js reads back in,
-// so export → edit in Sheets → sync round-trips cleanly.
+import { summarizePaymentInfo } from "./format";
+//
+// One row per creator RECORD (which is already one row per platform — a
+// creator on Instagram + YouTube is 2 separate records/rows). This is the
+// same shape ImportCreatorsModal/csvImport.js reads back in, so
+// export → edit in Sheets → sync round-trips cleanly.
 const CSV_COLUMNS = [
   { key: "name", label: "Creator" },
   { key: "phone", label: "Phone" },
   { key: "email", label: "Email" },
+  { key: "platform", label: "Platform" },
+  { key: "profileLink", label: "Link" },
   { key: "gender", label: "Gender" },
   { key: "category", label: "Niche" },
   { key: "language", label: "Language" },
@@ -19,7 +20,6 @@ const CSV_COLUMNS = [
   { key: "tier", label: "Category" },
   { key: "commercial", label: "Commercial" },
   { key: "remark", label: "Remarks" },
-  ...PLATFORMS.map((p) => ({ key: `platform:${p}`, label: `${p} Link` })),
 ];
 
 function csvEscape(value) {
@@ -35,9 +35,6 @@ export function creatorsToCsv(rows, getTierLabel) {
   const lines = rows.map((r) =>
     CSV_COLUMNS.map((c) => {
       if (c.key === "tier") return csvEscape(getTierLabel(r.followers));
-      if (c.key.startsWith("platform:")) {
-        return csvEscape(linkForPlatform(r, c.key.slice("platform:".length)));
-      }
       return csvEscape(r[c.key]);
     }).join(",")
   );
@@ -45,28 +42,43 @@ export function creatorsToCsv(rows, getTierLabel) {
 }
 
 // Campaign creator export — core creator info plus the campaign-specific
-// fields (commercial, negotiation status, lock status, remarks) that live
-// on the creator↔campaign link rather than the creator record itself.
+// fields (commercial, negotiation status, locked cost, lock status, lock
+// confirmation dates, execution stage, live link/date, payment info,
+// payment status, remarks) that live on the creator↔campaign link rather
+// than the creator record itself.
 const CAMPAIGN_CSV_COLUMNS = [
   { key: "name", label: "Creator" },
-  { key: "platform", label: "Platform(s)" },
+  { key: "platform", label: "Platform" },
   { key: "followers", label: "Followers" },
-  { key: "tier", label: "Category" },
+  { key: "phone", label: "Phone" },
+  { key: "email", label: "Email" },
   { key: "commercial", label: "Commercial" },
   { key: "negotiationStatus", label: "Negotiation Status" },
+  { key: "lockedCost", label: "Locked Cost" },
   { key: "lockStatus", label: "Lock Status" },
+   { key: "emailSent", label: "Email Sent" },
+  { key: "approvalReceived", label: "Approval Received" },
+  { key: "executionStage", label: "Execution Stage" },
+  { key: "liveLink", label: "Live Link" },
+  { key: "liveDate", label: "Live Date" },
+  { key: "paymentInfo", label: "Payment Info" },
+  { key: "advanceAmount", label: "Advance Amount" },
+  { key: "advancePaid", label: "Advance Paid" },
+  { key: "fullAmount", label: "Full Payment Amount" },
+  { key: "fullPaid", label: "Full Payment Paid" },
   { key: "remark", label: "Remarks" },
 ];
 
-export function campaignCreatorsToCsv(links, getCreatorById, getTierLabel) {
+export function campaignCreatorsToCsv(links, getCreatorById) {
   const header = CAMPAIGN_CSV_COLUMNS.map((c) => csvEscape(c.label)).join(",");
   const lines = links
     .map((link) => {
       const creator = getCreatorById(link.creatorId);
       if (!creator) return null;
       return CAMPAIGN_CSV_COLUMNS.map((c) => {
-        if (c.key === "tier") return csvEscape(getTierLabel(creator.followers));
-        if (c.key === "platform") return csvEscape(platformNames(creator).join(" / "));
+        if (c.key === "platform") return csvEscape(creator.platform || "");
+        if (c.key === "paymentInfo") return csvEscape(summarizePaymentInfo(link.paymentInfo));
+        if (c.key === "advancePaid" || c.key === "fullPaid") return csvEscape(link[c.key] ? "Yes" : "No");
         if (c.key in link) return csvEscape(link[c.key]);
         return csvEscape(creator[c.key]);
       }).join(",");

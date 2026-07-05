@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 
 import Layout from "./components/layout/Layout";
+import AutoSyncSheet from "./components/AutoSyncSheet";
 
 import { CreatorsProvider } from "./context/CreatorsContext";
 import { CampaignsProvider } from "./context/CampaignsContext";
@@ -13,6 +14,7 @@ export default function App() {
     <ToastProvider>
       <CreatorsProvider>
         <CampaignsProvider>
+          <AutoSyncSheet />
           <BrowserRouter>
             <Layout>
               <Routes>

@@ -2,30 +2,59 @@ import { ChevronUp, ChevronDown, Trash2 } from "lucide-react";
 import Badge from "../ui/Badge";
 import TierBadge from "../ui/TierBadge";
 import EditableCell from "../ui/EditableCell";
-import PlatformsCell from "../ui/PlatformsCell";
-import { fmt, primaryLink } from "../../utils/format";
+import { fmt, groupByPlatform } from "../../utils/format";
 import {
   LANG_COLORS,
   NICHE_COLORS,
   GENDER_COLORS,
+  PLATFORM_ICONS,
 } from "../../utils/constants";
 
 const GENDER_ICON = { Male: "\u2642", Female: "\u2640", Others: "\u26a5" };
 
+// Balanced, fixed-width columns. Sortable columns sort the underlying
+// (unflattened) creator list; platform grouping/order is independent of
+// this sort and always follows PLATFORMS order (see groupByPlatform).
 const COLUMNS = [
   { key: "name", label: "Creator", sortable: true, width: 130 },
-  { key: "platforms", label: "Platforms", sortable: true, width: 130 },
-  { key: "gender", label: "Gender", sortable: true, width: 72 },
-  { key: "category", label: "Niche", sortable: true, width: 88 },
-  { key: "language", label: "Language", sortable: true, width: 80 },
-  { key: "followers", label: "Followers", sortable: true, width: 76 },
-  { key: "tier", label: "Category", sortable: true, width: 84 },
-  { key: "phone", label: "Phone", sortable: false, width: 150 },
-  { key: "email", label: "Email", sortable: false, width: 210 },
+  { key: "gender", label: "Gender", sortable: true, width: 76 },
+  { key: "category", label: "Niche", sortable: true, width: 92 },
+  { key: "language", label: "Language", sortable: true, width: 84 },
+  { key: "followers", label: "Followers", sortable: true, width: 82 },
+  { key: "tier", label: "Category", sortable: true, width: 90 },
+  { key: "phone", label: "Phone", sortable: false, width: 140 },
+  { key: "email", label: "Email", sortable: false, width: 190 },
+  { key: "link", label: "Link", sortable: false, width: 130 },
   { key: "commercial", label: "Commercial", sortable: false, width: 110 },
   { key: "remark", label: "Remarks", sortable: false, width: 110 },
   { key: "actions", label: "", sortable: false, width: 40 },
 ];
+
+/**
+ * Section header row between platform groups — spans every column.
+ */
+function PlatformGroupHeader({ name, count, colSpan }) {
+  return (
+    <tr>
+      <td
+        colSpan={colSpan}
+        className="border-b px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[.08em]"
+        style={{ background: "rgba(30,111,224,.06)", borderColor: "var(--ln)", color: "var(--am)" }}
+      >
+        <span className="inline-flex items-center gap-1.5">
+          <span>{PLATFORM_ICONS[name] || "\ud83d\udd17"}</span>
+          {name}
+          <span
+            className="rounded-full px-1.5 py-[1px] text-[9px] font-medium normal-case tracking-normal"
+            style={{ background: "rgba(30,111,224,.14)", color: "var(--am)" }}
+          >
+            {count}
+          </span>
+        </span>
+      </td>
+    </tr>
+  );
+}
 
 export default function CreatorsTable({
   rows,
@@ -39,6 +68,11 @@ export default function CreatorsTable({
   onDeleteRow,
 }) {
   const allSelected = rows.length > 0 && rows.every((r) => selectedIds.has(r.id));
+  const groups = groupByPlatform(rows, (r) => r);
+
+  function updateLink(creatorId, link) {
+    onUpdateField(creatorId, "profileLink", link);
+  }
 
   return (
     <div
@@ -47,7 +81,7 @@ export default function CreatorsTable({
     >
       <table
         className="table-fixed border-collapse text-xs"
-        style={{ width: "100%", minWidth: 1320 }}
+        style={{ width: "100%", minWidth: 1300 }}
       >
         <thead>
           <tr>
@@ -99,175 +133,194 @@ export default function CreatorsTable({
           </tr>
         </thead>
         <tbody>
-          {rows.map((r) => {
-            const selected = selectedIds.has(r.id);
-            const lc = LANG_COLORS[r.language] || "#1E6FE0";
-            const cc = NICHE_COLORS[r.category] || "#1E6FE0";
-            const gc = GENDER_COLORS[r.gender] || "#1E6FE0";
+          {groups.map((group) => (
+            <>
+              <PlatformGroupHeader
+                key={`hdr-${group.name}`}
+                name={group.name}
+                count={group.rows.length}
+                colSpan={COLUMNS.length + 1}
+              />
+              {group.rows.map(({ creator: r, platform }) => {
+                const selected = selectedIds.has(r.id);
+                const lc = LANG_COLORS[r.language] || "#1E6FE0";
+                const cc = NICHE_COLORS[r.category] || "#1E6FE0";
+                const gc = GENDER_COLORS[r.gender] || "#1E6FE0";
 
-            return (
-              <tr
-                key={r.id}
-                className="transition-colors"
-                style={{ background: selected ? "rgba(30,111,224,.05)" : undefined }}
-                onMouseEnter={(e) => {
-                  if (!selected) e.currentTarget.style.background = "var(--up)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = selected
-                    ? "rgba(30,111,224,.05)"
-                    : "";
-                }}
-              >
-                <td className="border-b px-3 py-2" style={{ borderColor: "var(--ln)" }}>
-                  <input
-                    type="checkbox"
-                    checked={selected}
-                    onChange={() => onToggleSelect(r.id)}
-                    className="h-3.5 w-3.5 cursor-pointer accent-[#1E6FE0]"
-                  />
-                </td>
-
-                {/* Name */}
-                <td
-                  className="overflow-hidden border-b px-3 py-2"
-                  style={{ borderColor: "var(--ln)" }}
-                >
-                  <div className="flex min-w-0 items-center gap-1.5 font-medium">
-                    <span
-                      className="h-[7px] w-[7px] flex-shrink-0 rounded-full"
-                      style={{ background: lc }}
-                    />
-                    {primaryLink(r) ? (
-                      <a
-                        href={primaryLink(r)}
-                        target="_blank"
-                        rel="noreferrer"
-                        title="View profile"
-                        className="block max-w-[120px] overflow-hidden text-ellipsis whitespace-nowrap transition-colors"
-                        style={{ color: "var(--ink)" }}
-                      >
-                        {r.name}
-                      </a>
-                    ) : (
-                      <span className="block max-w-[120px] overflow-hidden text-ellipsis whitespace-nowrap">
-                        {r.name}
-                      </span>
-                    )}
-                  </div>
-                </td>
-
-                {/* Platforms — expandable, shows all platforms + links */}
-                <td className="overflow-visible border-b px-3 py-2" style={{ borderColor: "var(--ln)" }}>
-                  <PlatformsCell
-                    creator={r}
-                    onChange={(next) => onUpdateField(r.id, "platforms", next)}
-                  />
-                </td>
-
-                {/* Gender */}
-                <td className="border-b px-3 py-2" style={{ borderColor: "var(--ln)" }}>
-                  <Badge color={gc}>
-                    {GENDER_ICON[r.gender]} {r.gender}
-                  </Badge>
-                </td>
-
-                {/* Niche (renamed from Category) */}
-                <td className="border-b px-3 py-2" style={{ borderColor: "var(--ln)" }}>
-                  <Badge color={cc}>{r.category}</Badge>
-                </td>
-
-                {/* Language */}
-                <td className="border-b px-3 py-2" style={{ borderColor: "var(--ln)" }}>
-                  <Badge color={lc}>{r.language}</Badge>
-                </td>
-
-                {/* Followers */}
-                <td
-                  className="border-b px-3 py-2"
-                  style={{
-                    borderColor: "var(--ln)",
-                    color: "var(--ink)",
-                    fontFamily: "'JetBrains Mono', monospace",
-                  }}
-                >
-                  {fmt(r.followers)}
-                </td>
-
-                {/* Category (renamed from Tier) */}
-                <td className="border-b px-3 py-2" style={{ borderColor: "var(--ln)" }}>
-                  <TierBadge followers={r.followers} />
-                </td>
-
-                {/* Phone */}
-                <td
-                  className="border-b px-3 py-2 break-words"
-                  style={{
-                    borderColor: "var(--ln)",
-                    color: "var(--ink2)",
-                    fontFamily: "'JetBrains Mono', monospace",
-                  }}
-                >
-                  {r.phone}
-                </td>
-
-                {/* Email */}
-                <td
-                  className="border-b px-3 py-2 break-words"
-                  style={{ borderColor: "var(--ln)", color: "var(--ink2)" }}
-                >
-                  {r.email}
-                </td>
-
-                {/* Commercial (editable) */}
-                <td
-                  className="overflow-visible border-b px-3 py-2"
-                  style={{ borderColor: "var(--ln)" }}
-                >
-                  <EditableCell
-                    value={r.commercial}
-                    label="Commercial"
-                    variant="link"
-                    onSave={(val) => onUpdateField(r.id, "commercial", val)}
-                  />
-                </td>
-
-                {/* Remarks (editable) */}
-                <td
-                  className="overflow-visible border-b px-3 py-2"
-                  style={{ borderColor: "var(--ln)" }}
-                >
-                  <EditableCell
-                    value={r.remark}
-                    label="Remark"
-                    variant="pill"
-                    onSave={(val) => onUpdateField(r.id, "remark", val)}
-                  />
-                </td>
-
-                {/* Delete */}
-                <td className="border-b px-3 py-2" style={{ borderColor: "var(--ln)" }}>
-                  <button
-                    type="button"
-                    title={`Delete ${r.name}`}
-                    onClick={() => onDeleteRow?.(r.id, r.name)}
-                    className="flex h-[22px] w-[22px] items-center justify-center rounded-[6px] border border-transparent transition-colors"
-                    style={{ color: "var(--ink3)" }}
+                return (
+                  <tr
+                    key={`${r.id}::${group.name}`}
+                    className="transition-colors"
+                    style={{ background: selected ? "rgba(30,111,224,.05)" : undefined }}
                     onMouseEnter={(e) => {
-                      e.currentTarget.style.borderColor = "rgba(224,82,75,.3)";
-                      e.currentTarget.style.color = "#E0524B";
+                      if (!selected) e.currentTarget.style.background = "var(--up)";
                     }}
                     onMouseLeave={(e) => {
-                      e.currentTarget.style.borderColor = "transparent";
-                      e.currentTarget.style.color = "var(--ink3)";
+                      e.currentTarget.style.background = selected
+                        ? "rgba(30,111,224,.05)"
+                        : "";
                     }}
                   >
-                    <Trash2 size={13} />
-                  </button>
-                </td>
-              </tr>
-            );
-          })}
+                    <td className="border-b px-3 py-2" style={{ borderColor: "var(--ln)" }}>
+                      <input
+                        type="checkbox"
+                        checked={selected}
+                        onChange={() => onToggleSelect(r.id)}
+                        className="h-3.5 w-3.5 cursor-pointer accent-[#1E6FE0]"
+                      />
+                    </td>
+
+                    {/* Name */}
+                    <td
+                      className="overflow-hidden border-b px-3 py-2"
+                      style={{ borderColor: "var(--ln)" }}
+                    >
+                      <div className="flex min-w-0 items-center gap-1.5 font-medium">
+                        <span
+                          className="h-[7px] w-[7px] flex-shrink-0 rounded-full"
+                          style={{ background: lc }}
+                        />
+                        {platform?.link ? (
+                          <a
+                            href={platform.link}
+                            target="_blank"
+                            rel="noreferrer"
+                            title="View profile"
+                            className="block max-w-[110px] overflow-hidden text-ellipsis whitespace-nowrap transition-colors"
+                            style={{ color: "var(--ink)" }}
+                          >
+                            {r.name}
+                          </a>
+                        ) : (
+                          <span className="block max-w-[110px] overflow-hidden text-ellipsis whitespace-nowrap">
+                            {r.name}
+                          </span>
+                        )}
+                      </div>
+                    </td>
+
+                    {/* Gender */}
+                    <td className="border-b px-3 py-2" style={{ borderColor: "var(--ln)" }}>
+                      <Badge color={gc}>
+                        {GENDER_ICON[r.gender]} {r.gender}
+                      </Badge>
+                    </td>
+
+                    {/* Niche (renamed from Category) */}
+                    <td className="border-b px-3 py-2" style={{ borderColor: "var(--ln)" }}>
+                      <Badge color={cc}>{r.category}</Badge>
+                    </td>
+
+                    {/* Language */}
+                    <td className="border-b px-3 py-2" style={{ borderColor: "var(--ln)" }}>
+                      <Badge color={lc}>{r.language}</Badge>
+                    </td>
+
+                    {/* Followers */}
+                    <td
+                      className="border-b px-3 py-2"
+                      style={{
+                        borderColor: "var(--ln)",
+                        color: "var(--ink)",
+                        fontFamily: "'JetBrains Mono', monospace",
+                      }}
+                    >
+                      {fmt(r.followers)}
+                    </td>
+
+                    {/* Category (renamed from Tier) */}
+                    <td className="border-b px-3 py-2" style={{ borderColor: "var(--ln)" }}>
+                      <TierBadge followers={r.followers} />
+                    </td>
+
+                    {/* Phone */}
+                    <td
+                      className="border-b px-3 py-2 break-words"
+                      style={{
+                        borderColor: "var(--ln)",
+                        color: "var(--ink2)",
+                        fontFamily: "'JetBrains Mono', monospace",
+                      }}
+                    >
+                      {r.phone}
+                    </td>
+
+                    {/* Email */}
+                    <td
+                      className="border-b px-3 py-2 break-words"
+                      style={{ borderColor: "var(--ln)", color: "var(--ink2)" }}
+                    >
+                      {r.email}
+                    </td>
+
+                    {/* This platform's link (editable) */}
+                    <td
+                      className="overflow-visible border-b px-3 py-2"
+                      style={{ borderColor: "var(--ln)" }}
+                    >
+                      {platform ? (
+                        <EditableCell
+                          value={platform.link}
+                          label={`${platform.platform} link`}
+                          variant="link"
+                          onSave={(val) => updateLink(r.id, val)}
+                        />
+                      ) : (
+                        <span style={{ color: "var(--ink3)" }}>{"\u2014"}</span>
+                      )}
+                    </td>
+
+                    {/* Commercial (editable) */}
+                    <td
+                      className="overflow-visible border-b px-3 py-2"
+                      style={{ borderColor: "var(--ln)" }}
+                    >
+                      <EditableCell
+                        value={r.commercial}
+                        label="Commercial"
+                        variant="link"
+                        onSave={(val) => onUpdateField(r.id, "commercial", val)}
+                      />
+                    </td>
+
+                    {/* Remarks (editable) */}
+                    <td
+                      className="overflow-visible border-b px-3 py-2"
+                      style={{ borderColor: "var(--ln)" }}
+                    >
+                      <EditableCell
+                        value={r.remark}
+                        label="Remark"
+                        variant="pill"
+                        onSave={(val) => onUpdateField(r.id, "remark", val)}
+                      />
+                    </td>
+
+                    {/* Delete */}
+                    <td className="border-b px-3 py-2" style={{ borderColor: "var(--ln)" }}>
+                      <button
+                        type="button"
+                        title={`Delete ${r.name}`}
+                        onClick={() => onDeleteRow?.(r.id, r.name)}
+                        className="flex h-[22px] w-[22px] items-center justify-center rounded-[6px] border border-transparent transition-colors"
+                        style={{ color: "var(--ink3)" }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.borderColor = "rgba(224,82,75,.3)";
+                          e.currentTarget.style.color = "#E0524B";
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.borderColor = "transparent";
+                          e.currentTarget.style.color = "var(--ink3)";
+                        }}
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </>
+          ))}
         </tbody>
       </table>
 
@@ -282,4 +335,3 @@ export default function CreatorsTable({
     </div>
   );
 }
-

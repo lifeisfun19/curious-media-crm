@@ -1,5 +1,8 @@
-// Mock creator data — ported from the approved HTML's mock() generator,
-// extended with phone + email fields required by Phase 2.
+// Mock creator data — one row per (person, platform) combination. A real
+// creator who is on both Instagram and YouTube is represented as TWO
+// separate creator records here (same name/phone/email, different id +
+// platform + profileLink + followers), matching how the rest of the app
+// treats platforms as distinct CRM entries rather than a list on one row.
 
 import { CATS, LANGS, PLATFORMS, GENDERS } from "../utils/constants";
 
@@ -75,19 +78,25 @@ function makePhone(seed) {
   return "+91 " + String(base).slice(0, 5) + " " + String(base).slice(5, 10);
 }
 
-// Build the platforms[] array for a creator — every creator has at least
-// one platform (the "seed" platform for this row), plus a chance of being
-// on 1-2 additional platforms too, since real creators are rarely on just
-// one channel.
-function makePlatforms(seedPlat, seed) {
-  const list = [{ platform: seedPlat, link: platformLink(seedPlat) + "/" + seed }];
+function randomFollowers() {
+  const tierRoll = Math.random();
+  if (tierRoll < 0.2)
+    return Math.round((1000 + Math.random() * 8999) / 100) * 100;
+  if (tierRoll < 0.5)
+    return Math.round((10000 + Math.random() * 89999) / 1000) * 1000;
+  if (tierRoll < 0.78)
+    return Math.round((100000 + Math.random() * 399999) / 1000) * 1000;
+  return Math.round((1000000 + Math.random() * 9000000) / 10000) * 10000;
+}
+
+// Which platforms a given "person" is on — most creators are on just one
+// platform, some are on two, so the app has real examples of the same
+// person showing up as multiple entries.
+function pickPlatforms(seedPlat, personSeed) {
+  const list = [seedPlat];
   const others = PLATFORMS.filter((p) => p !== seedPlat);
-  // Deterministic-ish extra platforms based on the seed so results are
-  // stable across renders in dev (no reliance on Math.random for this part).
   others.forEach((p, i) => {
-    if ((seed + i) % 5 === 0) {
-      list.push({ platform: p, link: platformLink(p) + "/" + seed });
-    }
+    if ((personSeed + i) % 5 === 0) list.push(p);
   });
   return list;
 }
@@ -95,46 +104,45 @@ function makePlatforms(seedPlat, seed) {
 export function generateMockCreators() {
   const rows = [];
   let id = 0;
+  let personSeed = 0;
 
   LANGS.forEach((lang) => {
     CATS.forEach((cat) => {
       PLATFORMS.forEach((plat) => {
         if (Math.random() < 0.3 && id > 15) return;
-        const ns = NAMES[lang] || NAMES.Telugu;
-        const tierRoll = Math.random();
-        let followers;
-        if (tierRoll < 0.2)
-          followers = Math.round((1000 + Math.random() * 8999) / 100) * 100;
-        else if (tierRoll < 0.5)
-          followers =
-            Math.round((10000 + Math.random() * 89999) / 1000) * 1000;
-        else if (tierRoll < 0.78)
-          followers =
-            Math.round((100000 + Math.random() * 399999) / 1000) * 1000;
-        else
-          followers =
-            Math.round((1000000 + Math.random() * 9000000) / 10000) * 10000;
 
+        const ns = NAMES[lang] || NAMES.Telugu;
         const gender = GENDERS[Math.floor(Math.random() * GENDERS.length)];
         const name =
-          ns[id % ns.length] + (Math.random() < 0.4 ? " " + cat : "");
+          ns[personSeed % ns.length] + (Math.random() < 0.4 ? " " + cat : "");
+        const phone = makePhone(personSeed);
+        const email = slugify(name) + "@creatormail.com";
 
-        rows.push({
-          id: "cr_" + id,
-          name,
-          category: cat, // Niche (Phase 2 rename)
-          language: lang,
-          platforms: makePlatforms(plat, id),
-          gender,
-          followers,
-          avgViews:
-            Math.round((8000 + Math.random() * 3500000) / 1000) * 1000,
-          phone: makePhone(id),
-          email: slugify(name) + "@creatormail.com",
-          commercial: "",
-          remark: "",
+        // This "person" may be on more than one platform — each platform
+        // becomes its own standalone creator record (own id, own
+        // followers/commercial/remark), sharing name/phone/email/gender.
+        const personPlatforms = pickPlatforms(plat, personSeed);
+
+        personPlatforms.forEach((platName) => {
+          rows.push({
+            id: "cr_" + id,
+            name,
+            category: cat, // Niche (Phase 2 rename)
+            language: lang,
+            platform: platName,
+            profileLink: platformLink(platName) + "/" + personSeed,
+            gender,
+            followers: randomFollowers(),
+            avgViews: Math.round((8000 + Math.random() * 3500000) / 1000) * 1000,
+            phone,
+            email,
+            commercial: "",
+            remark: "",
+          });
+          id++;
         });
-        id++;
+
+        personSeed++;
       });
     });
   });

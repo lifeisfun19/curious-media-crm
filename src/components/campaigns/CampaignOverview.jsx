@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Pencil, Check, X } from "lucide-react";
 import { CAMPAIGN_STATUSES, CAMPAIGN_STATUS_COLORS } from "../../utils/constants";
-import { hex2rgba } from "../../utils/format";
+import { hex2rgba, parseN } from "../../utils/format";
 
 function fmtBudget(n) {
   if (!n) return "\u2014";
@@ -120,6 +120,45 @@ function OverviewField({ label, value, displayValue, type = "text", options, onS
   );
 }
 
+/**
+ * Remaining budget = campaign budget minus the sum of every creator link's
+ * "commercial" value. This is derived, not stored — it recalculates live
+ * any time budget changes or any commercial value in the table changes,
+ * so it never needs its own edit control.
+ */
+function RemainingBudgetField({ campaign }) {
+  const spent = (campaign.creatorLinks || []).reduce(
+    (sum, l) => sum + parseN(l.commercial),
+    0
+  );
+  const remaining = (Number(campaign.budget) || 0) - spent;
+  const isOverBudget = remaining < 0;
+
+  return (
+    <div
+      className="rounded-[11px] border px-3.5 py-3"
+      style={{ background: "var(--panel)", borderColor: "var(--ln)" }}
+    >
+      <div
+        className="mb-1.5 text-[11px] uppercase tracking-[.07em]"
+        style={{ color: "var(--ink3)" }}
+      >
+        Remaining Budget
+      </div>
+      <div
+        className="text-base font-semibold"
+        style={{
+          color: isOverBudget ? "#E0524B" : "var(--ink)",
+          fontFamily: "'JetBrains Mono', monospace",
+        }}
+        title={`Budget ${fmtBudget(campaign.budget)} \u2212 Commercial total ${fmtBudget(spent)}`}
+      >
+        {fmtBudget(remaining)}
+      </div>
+    </div>
+  );
+}
+
 export default function CampaignOverview({ campaign, onUpdate }) {
   const statusColor = CAMPAIGN_STATUS_COLORS[campaign.status] || "#8FA3BC";
 
@@ -179,6 +218,7 @@ export default function CampaignOverview({ campaign, onUpdate }) {
           ))}
         </select>
       </div>
+      <RemainingBudgetField campaign={campaign} />
     </div>
   );
 }

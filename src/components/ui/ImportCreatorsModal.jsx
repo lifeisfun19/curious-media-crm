@@ -1,10 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { Upload, FileText, AlertCircle, CheckCircle2, Link2, RefreshCw, Unlink } from "lucide-react";
 import Modal from "../ui/Modal";
-import { parseCsvImport, mergeCreators, syncCreators } from "../../utils/csvImport";
+import { parseCsvImport, mergeCreators } from "../../utils/csvImport";
 import {
-  normaliseSheetUrl,
-  fetchSheetCsv,
+  syncFromSheetUrl,
   getSavedSheetLink,
   saveSheetLink,
   clearSavedSheetLink,
@@ -76,7 +75,11 @@ export default function ImportCreatorsModal({ open, onClose }) {
   const [editingLink, setEditingLink] = useState(false);
 
   useEffect(() => {
-    if (open) setLinkedSheet(getSavedSheetLink());
+    if (open) {
+      const saved = getSavedSheetLink();
+      setLinkedSheet(saved);
+      setMirrorMode(Boolean(saved?.mirror));
+    }
   }, [open]);
 
   function reset() {
@@ -130,7 +133,7 @@ export default function ImportCreatorsModal({ open, onClose }) {
     setCreators(preview.merged);
     const skippedRowsNote = errors.length > 0 ? `, ${errors.length} row${errors.length === 1 ? "" : "s"} had errors and were skipped` : "";
     showToast(
-      `${preview.added} creator${preview.added === 1 ? "" : "s"} added, ${preview.skipped} skipped (duplicate phone)${skippedRowsNote}`,
+      `${preview.added} creator${preview.added === 1 ? "" : "s"} added, ${preview.skipped} skipped (duplicate name + phone + platform)${skippedRowsNote}`,
       true
     );
     reset();
@@ -143,34 +146,23 @@ export default function ImportCreatorsModal({ open, onClose }) {
     setSyncSummary(null);
     setSyncing(true);
     try {
-      const csvUrl = normaliseSheetUrl(rawUrl);
-      const text = await fetchSheetCsv(csvUrl);
-      const { rows, errors: parseErrors } = parseCsvImport(text);
-
-      if (rows.length === 0) {
-        // Nothing usable at all — surface the first error as a hard stop.
-        setLinkError(
-          (parseErrors[0]?.message || "No usable rows found.") +
-            (parseErrors.length > 1 ? ` (+${parseErrors.length - 1} more)` : "")
-        );
-        return;
-      }
-
-      const { merged, added, updated, removed } = syncCreators(creators, rows, {
-        mirror: mirrorMode,
-      });
+      const { merged, added, updated, removed, rowErrors } = await syncFromSheetUrl(
+        rawUrl,
+        creators,
+        { mirror: mirrorMode }
+      );
       setCreators(merged);
 
       const nowIso = new Date().toISOString();
-      const record = { url: rawUrl, lastSyncedAt: nowIso };
+      const record = { url: rawUrl, lastSyncedAt: nowIso, mirror: mirrorMode };
       saveSheetLink(record);
       setLinkedSheet(record);
       setEditingLink(false);
-      setSyncSummary({ added, updated, removed, rowErrors: parseErrors });
+      setSyncSummary({ added, updated, removed, rowErrors });
       showToast(
         `Synced: ${added} added, ${updated} updated` +
           (mirrorMode ? `, ${removed} removed` : "") +
-          (parseErrors.length > 0 ? `, ${parseErrors.length} row${parseErrors.length === 1 ? "" : "s"} skipped (errors)` : ""),
+          (rowErrors.length > 0 ? `, ${rowErrors.length} row${rowErrors.length === 1 ? "" : "s"} skipped (errors)` : ""),
         true
       );
     } catch (err) {
@@ -219,8 +211,8 @@ export default function ImportCreatorsModal({ open, onClose }) {
       title="Import Creators"
       description={
         tab === TABS.UPLOAD
-          ? "Export your Google Sheet as a CSV file (File → Download → CSV) then upload it here. Creators with a duplicate phone number will be skipped."
-          : "Link a Google Sheet once, then hit \"Sync now\" whenever it changes. Rows are matched by phone (or by name if there's no phone) — matches update the existing creator, new rows are added, and duplicate rows collapse into one."
+          ? "Export your Google Sheet as a CSV file (File → Download → CSV) then upload it here. A row matching an existing creator's name + phone + platform will be skipped as a duplicate — the same person on 2 platforms is kept as 2 entries."
+          : "Link a Google Sheet once, then hit \"Sync now\" whenever it changes. Rows are matched by name + phone + platform — matches update that entry, new platforms/people are added, and duplicate rows collapse into one."
       }
       maxWidth={520}
     >
@@ -349,7 +341,7 @@ export default function ImportCreatorsModal({ open, onClose }) {
                     <span className="font-semibold" style={{ color: "var(--ink)", fontFamily: "'JetBrains Mono', monospace" }}>
                       {preview.skipped}
                     </span>{" "}
-                    skipped — phone number already exists in the table
+                    skipped — same name + phone + platform already exists
                   </div>
                 )}
                 <div className="mt-1" style={{ color: "var(--ink3)" }}>
@@ -373,7 +365,7 @@ export default function ImportCreatorsModal({ open, onClose }) {
                 Name, Phone, Email, Gender, Niche, Language, Followers, Instagram Link, YouTube Link, Twitter Link, LinkedIn Link
               </code>
               <div className="mt-1.5">
-                One row per creator — leave a platform's link column blank if they're not on it. (A single "Platform" + "Link" column pair still works too, for one-platform-per-row sheets.)
+                One row per platform per creator — a creator on Instagram + YouTube becomes 2 entries. Use per-platform link columns (leave blank if they're not on it), or a single "Platform" + "Link" column pair for one-platform-per-row sheets.
               </div>
               <div className="mt-1.5">
                 Followers can be plain numbers (<span style={{ fontFamily: "monospace" }}>950000</span>) or formatted (<span style={{ fontFamily: "monospace" }}>950K</span>, <span style={{ fontFamily: "monospace" }}>1.2M</span>).
@@ -458,7 +450,7 @@ export default function ImportCreatorsModal({ open, onClose }) {
               <p className="mt-1.5 text-[11px] leading-relaxed" style={{ color: "var(--ink3)" }}>
                 {editingLink
                   ? "Paste the URL of the sheet you want to connect instead. Syncing will match/add/update against this new sheet."
-                  : 'Set sharing to "Anyone with the link can view". We\'ll read the first sheet tab. A direct published CSV link also works.'}
+                  : 'Set sharing to "Anyone with the link can view". We\'ll read every tab in the sheet. A direct published CSV link (single tab only) also works.'}
               </p>
             </div>
           )}
@@ -470,7 +462,17 @@ export default function ImportCreatorsModal({ open, onClose }) {
             <input
               type="checkbox"
               checked={mirrorMode}
-              onChange={(e) => setMirrorMode(e.target.checked)}
+              onChange={(e) => {
+                const next = e.target.checked;
+                setMirrorMode(next);
+                // Persist right away (not just on next sync) so the
+                // background auto-sync always uses the latest preference.
+                if (linkedSheet?.url) {
+                  const record = { ...linkedSheet, mirror: next };
+                  saveSheetLink(record);
+                  setLinkedSheet(record);
+                }
+              }}
               className="mt-[2px] h-3.5 w-3.5 cursor-pointer accent-[#1E6FE0]"
             />
             <span className="text-[11px] leading-relaxed" style={{ color: "var(--ink2)" }}>

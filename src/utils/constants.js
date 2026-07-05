@@ -23,6 +23,13 @@ export const LANGS = [
 
 export const PLATFORMS = ["Instagram", "YouTube", "Twitter", "LinkedIn"];
 
+export const PLATFORM_ICONS = {
+  Instagram: "\ud83d\udcf8",
+  YouTube: "\u25b6",
+  Twitter: "\ud835\udd4f",
+  LinkedIn: "\ud83d\udcbc",
+};
+
 export const GENDERS = ["Male", "Female", "Others"];
 
 export const CAT_COLORS = {
@@ -113,4 +120,31 @@ export const CAMPAIGN_STATUS_COLORS = {
   Active: "#2BAE66",
   Paused: "#E08A3B",
   Completed: "#1E6FE0",
+};
+
+// Payment method options for a campaign↔creator link's payment info.
+export const PAYMENT_TYPES = ["upi", "bank"];
+
+export const PAYMENT_TYPE_LABELS = {
+  upi: "UPI",
+  bank: "Bank Transfer",
+};
+
+ // Execution stage options for campaign-creator links.
+export const EXECUTION_STAGES = [
+  "Draft Video",
+  "Script Received",
+  "Script Approved",
+  "Draft Video Received",
+  "Draft Video Approved",
+  "Live Video Date",
+];
+
+export const EXECUTION_STAGE_COLORS = {
+  "Draft Video": "#8FA3BC",
+  "Script Received": "#3F8FE0",
+  "Script Approved": "#1E6FE0",
+  "Draft Video Received": "#6E5BD6",
+  "Draft Video Approved": "#2BAE9E",
+  "Live Video Date": "#2BAE66",
 };

@@ -1,6 +1,6 @@
 // Formatting + helper functions — ported 1:1 from the approved HTML's <script>.
 
-import { TIER_RANGES } from "./constants";
+import { TIER_RANGES, PLATFORMS } from "./constants";
 
 export function fmt(n) {
   if (n >= 1e6) return (n / 1e6).toFixed(1).replace(/\.0$/, "") + "M";
@@ -74,14 +74,19 @@ export function uniqValues(rows, field) {
 }
 
 // ---------------------------------------------------------------------------
-// Multi-platform helpers
+// Platform helpers
 //
-// A creator can now be on several platforms at once. Canonical shape:
-//   creator.platforms = [{ platform: "Instagram", link: "https://..." }, ...]
+// Each creator RECORD represents exactly one (person, platform) pair —
+// canonical shape: creator.platform = "Instagram", creator.profileLink =
+// "https://...". A real person on both Instagram and YouTube is two
+// separate creator records (own id, own followers/commercial/remark),
+// sharing the same name/phone/email. This is intentional: it's what lets
+// "2 entries for a creator on 2 platforms" and per-platform dedup work.
 //
-// These helpers centralise reading that array (with a fallback for any
-// stray legacy record that still only has single `platform`/`profileLink`
-// fields) so the rest of the app never has to special-case the shape.
+// These helpers still read from a legacy `creator.platforms` array first
+// if one happens to be present (e.g. old imported/pasted data), falling
+// back to the singular fields, so the rest of the app never has to
+// special-case the shape.
 // ---------------------------------------------------------------------------
 
 export function creatorPlatforms(creator) {
@@ -133,4 +138,112 @@ export function topPlatform(rows) {
 // Normalised name key, used as a fallback dedup key for rows with no phone.
 export function normaliseName(name) {
   return String(name ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+// ---------------------------------------------------------------------------
+// Platform grouping for tables that split a multi-platform creator into one
+// row per platform (e.g. a creator on Instagram + YouTube shows up as two
+// separate rows, one under each platform group).
+// ---------------------------------------------------------------------------
+
+const PLATFORM_GROUP_ORDER = [...PLATFORMS, "No platform"];
+
+/**
+ * Flattens a list of items into one row per platform per item, then groups
+ * those rows by platform (in PLATFORMS order, with platform-less items in
+ * a trailing "No platform" group). Items with several platforms appear
+ * once under each of their platforms.
+ *
+ * `getCreator(item)` returns the underlying creator record for an item —
+ * for a plain creator row that's the identity function; for a campaign
+ * creator-link that's `(link) => getCreatorById(link.creatorId)`.
+ *
+ * Returns: [{ name, rows: [{ item, creator, platform }] }, ...] — only
+ * groups with at least one row are included.
+ */
+export function groupByPlatform(items, getCreator) {
+  const groups = new Map(PLATFORM_GROUP_ORDER.map((p) => [p, []]));
+
+  items.forEach((item) => {
+    const creator = getCreator(item);
+    if (!creator) return;
+    const platforms = creatorPlatforms(creator);
+    if (platforms.length === 0) {
+      groups.get("No platform").push({ item, creator, platform: null });
+    } else {
+      platforms.forEach((p) => {
+        if (!groups.has(p.platform)) groups.set(p.platform, []);
+        groups.get(p.platform).push({ item, creator, platform: p });
+      });
+    }
+  });
+
+  return PLATFORM_GROUP_ORDER
+    .map((name) => ({ name, rows: groups.get(name) || [] }))
+    .filter((g) => g.rows.length > 0);
+}
+
+// ---------------------------------------------------------------------------
+// Payment info helpers — used by the campaign "Payment Info" dialog and the
+// "Payment Status" tab. A payment record on a campaign↔creator link looks
+// like either:
+//   { type: "upi", upiId }
+//   { type: "bank", accountHolder, accountNumber, ifsc, bankName }
+// ---------------------------------------------------------------------------
+
+// Masks all but the last 4 digits of an account number for display, e.g.
+// "1234567890" -> "•••• •••• 7890".
+export function maskAccountNumber(num) {
+  const s = String(num ?? "").replace(/\s+/g, "");
+  if (!s) return "";
+  if (s.length <= 4) return s;
+  const last4 = s.slice(-4);
+  return "•••• •••• " + last4;
+}
+
+// Short one-line summary of a payment info record, for table cells.
+export function summarizePaymentInfo(info) {
+  if (!info || !info.type) return "";
+  if (info.type === "upi") {
+    return info.upiId ? `UPI · ${info.upiId}` : "UPI";
+  }
+  if (info.type === "bank") {
+    const acc = info.accountNumber ? maskAccountNumber(info.accountNumber) : "";
+    return [info.bankName, acc].filter(Boolean).join(" · ") || "Bank";
+  }
+  return "";
+}
+
+// Full, human-readable payment info block for an email body / preview.
+export function formatPaymentInfoLines(info) {
+  if (!info || !info.type) return ["Not provided yet"];
+  if (info.type === "upi") {
+    return [`Payment method: UPI`, `UPI ID: ${info.upiId || "—"}`];
+  }
+  return [
+    `Payment method: Bank Transfer`,
+    `Account holder: ${info.accountHolder || "—"}`,
+    `Account number: ${info.accountNumber || "—"}`,
+    `IFSC code: ${info.ifsc || "—"}`,
+    `Bank name: ${info.bankName || "—"}`,
+  ];
+}
+
+// Builds a mailto: URL pre-filled with creator + campaign + payment
+// details, so "forwarding to email" just opens the user's own email app
+// with a ready-to-send draft (no backend / email service required).
+export function buildPaymentMailto({ to, creator, campaignName, amount, paymentInfo }) {
+  const subject = `Payment details — ${creator?.name || "Creator"} — ${campaignName || ""}`.trim();
+  const bodyLines = [
+    `Creator: ${creator?.name || "—"}`,
+    `Phone: ${creator?.phone || "—"}`,
+    `Platform: ${creator?.platform || primaryPlatform(creator) || "—"}`,
+    `Campaign: ${campaignName || "—"}`,
+    `Payment amount: ${amount || "—"}`,
+    "",
+    ...formatPaymentInfoLines(paymentInfo),
+  ];
+  const toPart = to ? encodeURIComponent(to) : "";
+  const query = `subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(bodyLines.join("\n"))}`;
+  return `mailto:${toPart}?${query}`;
 }

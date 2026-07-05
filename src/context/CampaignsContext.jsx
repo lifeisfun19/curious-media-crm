@@ -53,12 +53,23 @@ export function CampaignsProvider({ children }) {
         const newLinks = creatorIds
           .filter((cid) => !existingIds.has(cid))
           .map((cid) => ({
-            creatorId: cid,
-            commercial: "",
-            negotiationStatus: "Not Contacted",
-            lockStatus: "unlocked",
-            remark: "",
-          }));
+  creatorId: cid,
+  commercial: "",
+  negotiationStatus: "Not Contacted",
+  lockedCost: "",
+  lockStatus: "unlocked",
+  emailSent: false,
+  approvalReceived: false,
+  executionStage: "Draft Video",
+  liveLink: "",
+  liveDate: "",
+  paymentInfo: null,
+  advanceAmount: "",
+  advancePaid: false,
+  fullAmount: "",
+  fullPaid: false,
+  remark: "",
+}));
         return { ...c, creatorLinks: [...c.creatorLinks, ...newLinks] };
       })
     );
