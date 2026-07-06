@@ -40,7 +40,7 @@ const COLS = [
   ["Execution Stage", 150],
   ["Live Video Link", 120],
   ["Payment Info", 150],
-  ["Advance / Full Payment", 210],
+  ["Payment Status", 210],
   ["Remark", 120],
   ["", 40],
 ];
